@@ -40,6 +40,34 @@ export type SmsLoginResult = {
   raw: Record<string, unknown>;
 };
 
+export type SmsRegisterResult = {
+  code: number;
+  message?: string;
+  cookie: string;
+  checkToken: string;
+  ydDeviceToken?: string;
+  password: string;
+  profile?: Record<string, unknown>;
+  needNickname?: boolean;
+  exist?: number;
+  raw: Record<string, unknown>;
+};
+
+/** 官网 ctWebLogin 注册发码 secrete */
+export const REGISTER_SECRETE = "music_middleuser_regist";
+/** 官网 ctWebLogin 登录发码 secrete */
+export const LOGIN_SECRETE = "music_user_login";
+
+function randomPassword(len = 10): string {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let text = "";
+  for (let i = 0; i < len; i++) {
+    text += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return text;
+}
+
 function mergeCookie(...parts: string[]): string {
   const seen = new Map<string, string>();
   for (const part of parts) {
@@ -161,19 +189,22 @@ export async function sendSmsCaptcha(options: {
   phone: string;
   countrycode?: string;
   secrete?: string;
+  /** 官网发码体不含 ydDeviceToken；默认 false 对齐官网 */
+  attachYdDeviceToken?: boolean;
   cookie?: string;
   checkToken?: string;
   ydDeviceToken?: string;
 }): Promise<SmsSendResult> {
   const phone = String(options.phone || "").trim();
   const countrycode = String(options.countrycode || "86");
-  const secrete = options.secrete || "music_user_login";
+  const secrete = options.secrete || LOGIN_SECRETE;
   if (!/^\d{6,15}$/.test(phone)) throw new Error("请输入正确的手机号");
 
   const tokens = await prepareSmsTokens(options);
   let cookie = tokens.cookie;
   const { checkToken, ydDeviceToken } = tokens;
 
+  // 官网 ctWebLogin 发码明文：cellphone/ctcode/secrete/source (+ checkToken)
   const basePayload: Record<string, unknown> = {
     cellphone: phone,
     ctcode: countrycode,
@@ -181,7 +212,9 @@ export async function sendSmsCaptcha(options: {
     source: "webMainStation",
     checkToken,
   };
-  if (ydDeviceToken) basePayload.ydDeviceToken = ydDeviceToken;
+  if (options.attachYdDeviceToken && ydDeviceToken) {
+    basePayload.ydDeviceToken = ydDeviceToken;
+  }
 
   const headers = antiCheatHeaders(checkToken);
 
@@ -221,7 +254,7 @@ export async function sendSmsCaptcha(options: {
 
 /**
  * 校验短信验证码：POST /weapi/sms/captcha/verify
- * 对齐油猴：带 checkToken（+ X-antiCheatToken）；ydDeviceToken 可选附带。
+ * 官网明文：cellphone / ctcode / captcha (+ checkToken)，不含 ydDeviceToken。
  */
 export async function verifySmsCaptcha(options: {
   phone: string;
@@ -237,9 +270,9 @@ export async function verifySmsCaptcha(options: {
   if (!/^\d{6,15}$/.test(phone)) throw new Error("请输入正确的手机号");
   if (!/^\d{4,8}$/.test(captcha)) throw new Error("请输入短信验证码");
 
-  const tokens = await prepareSmsTokens(options);
+  const tokens = await prepareSmsTokens({ ...options, skipYd: true });
   let cookie = tokens.cookie;
-  const { checkToken, ydDeviceToken } = tokens;
+  const { checkToken } = tokens;
 
   const payload: Record<string, unknown> = {
     cellphone: phone,
@@ -247,7 +280,6 @@ export async function verifySmsCaptcha(options: {
     captcha,
     checkToken,
   };
-  if (ydDeviceToken) payload.ydDeviceToken = ydDeviceToken;
 
   const { json, cookie: c1 } = await weapiPost(
     "/weapi/sms/captcha/verify",
@@ -262,7 +294,145 @@ export async function verifySmsCaptcha(options: {
     message: String(json.message || json.msg || ""),
     cookie,
     checkToken,
+    ydDeviceToken: options.ydDeviceToken,
+    raw: json,
+  };
+}
+
+/**
+ * 官网注册发码：secrete = music_middleuser_regist
+ */
+export async function sendRegisterSmsCaptcha(options: {
+  phone: string;
+  countrycode?: string;
+  cookie?: string;
+  checkToken?: string;
+}): Promise<SmsSendResult> {
+  return sendSmsCaptcha({
+    ...options,
+    secrete: REGISTER_SECRETE,
+    attachYdDeviceToken: false,
+  });
+}
+
+/**
+ * 官网注册：
+ *   verify → /cellphone/existence/check/v1 → /register/cellphone
+ * 注册体：countrycode/phone/captcha/password + ydDeviceToken + checkToken
+ * （ctWebLogin phoneRegister；密码明文，不 MD5）
+ */
+export async function registerBySms(options: {
+  phone: string;
+  captcha: string;
+  countrycode?: string;
+  password?: string;
+  cookie?: string;
+  checkToken?: string;
+  ydDeviceToken?: string;
+}): Promise<SmsRegisterResult> {
+  const phone = String(options.phone || "").trim();
+  const captcha = String(options.captcha || "").trim();
+  const countrycode = String(options.countrycode || "86");
+  const password = options.password || randomPassword();
+  if (!/^\d{6,15}$/.test(phone)) throw new Error("请输入正确的手机号");
+  if (!/^\d{4,8}$/.test(captcha)) throw new Error("请输入短信验证码");
+  if (password.length < 6 || password.length > 16) {
+    throw new Error("密码应为 6-16 位");
+  }
+
+  const tokens = await prepareSmsTokens(options);
+  let cookie = tokens.cookie;
+  let { checkToken, ydDeviceToken } = tokens;
+  const headers = antiCheatHeaders(checkToken);
+
+  // 1) verify
+  {
+    const { json, cookie: c1 } = await weapiPost(
+      "/weapi/sms/captcha/verify",
+      {
+        cellphone: phone,
+        ctcode: countrycode,
+        captcha,
+        checkToken,
+      },
+      cookie,
+      headers,
+    );
+    cookie = c1;
+    if (Number(json.code) !== 200) {
+      return {
+        code: Number(json.code ?? -1),
+        message: String(json.message || json.msg || "校验验证码失败"),
+        cookie,
+        checkToken,
+        ydDeviceToken,
+        password,
+        raw: json,
+      };
+    }
+  }
+
+  // 2) existence check
+  let exist: number | undefined;
+  {
+    const { json, cookie: c2 } = await weapiPost(
+      "/weapi/cellphone/existence/check/v1",
+      {
+        cellphone: phone,
+        countrycode,
+        checkToken,
+      },
+      cookie,
+      headers,
+    );
+    cookie = c2;
+    exist = Number(
+      (json.exist as number | undefined) ??
+        (json.data as { exist?: number } | undefined)?.exist ??
+        NaN,
+    );
+    if (!Number.isFinite(exist)) exist = undefined;
+  }
+
+  // 3) register — 必须有 ydDeviceToken（官网 phoneRegister 会合并）
+  if (!ydDeviceToken) {
+    ydDeviceToken = await getYdDeviceToken()
+      .then((r) => r.ydDeviceToken)
+      .catch(() => undefined);
+  }
+  const regPayload: Record<string, unknown> = {
+    countrycode,
+    phone,
+    captcha,
+    password,
+    checkToken,
+  };
+  if (ydDeviceToken) regPayload.ydDeviceToken = ydDeviceToken;
+
+  const { json, cookie: c3 } = await weapiPost(
+    "/weapi/register/cellphone",
+    regPayload,
+    cookie,
+    headers,
+  );
+  cookie = c3;
+
+  const profile =
+    (json.profile as Record<string, unknown> | undefined) ||
+    ((json.data as Record<string, unknown> | undefined)?.profile as
+      | Record<string, unknown>
+      | undefined);
+
+  return {
+    code: Number(json.code ?? -1),
+    message: String(json.message || json.msg || ""),
+    cookie,
+    checkToken,
     ydDeviceToken,
+    password,
+    profile,
+    needNickname: Number(json.code) === 200 && !profile,
+    exist,
     raw: json,
   };
 }

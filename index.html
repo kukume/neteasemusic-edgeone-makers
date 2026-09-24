@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>网易云短信登录 API</title>
+    <title>网易云短信登录 / 注册 API</title>
     <style>
       :root {
         color-scheme: light dark;
         font-family: ui-sans-serif, system-ui, sans-serif;
       }
       body {
-        max-width: 720px;
+        max-width: 760px;
         margin: 40px auto;
         padding: 0 16px;
         line-height: 1.5;
@@ -53,9 +53,17 @@
         background: color-mix(in srgb, CanvasText 18%, Canvas);
         color: CanvasText;
       }
+      button.danger {
+        background: #13c2c2;
+      }
       .hint {
         color: color-mix(in srgb, CanvasText 60%, Canvas);
         font-size: 13px;
+      }
+      .panel {
+        margin-top: 24px;
+        padding-top: 8px;
+        border-top: 1px solid color-mix(in srgb, CanvasText 12%, Canvas);
       }
       #out {
         white-space: pre-wrap;
@@ -64,10 +72,11 @@
     </style>
   </head>
   <body>
-    <h1>网易云短信登录 API</h1>
+    <h1>网易云短信登录 / 注册</h1>
     <p class="hint">
-      EdgeOne Makers Cloud Functions：<code>POST /api/sms/send</code>、
-      <code>POST /api/sms/verify</code>（登录并返回含 MUSIC_U 的 cookie）
+      登录：<code>/api/sms/send</code> → <code>/api/sms/verify</code><br />
+      注册：<code>/api/sms/register/send</code> →
+      <code>/api/sms/register</code>（密码网页随机生成）
     </p>
 
     <label>手机号</label>
@@ -79,9 +88,20 @@
     <label>短信验证码</label>
     <input id="code" placeholder="收到短信后再填" />
 
-    <div>
-      <button id="btnSend">1. 发送验证码</button>
+    <div class="panel">
+      <h3>登录</h3>
+      <button id="btnSend">1. 登录发码</button>
       <button id="btnVerify" class="secondary">2. 验证并登录</button>
+    </div>
+
+    <div class="panel">
+      <h3>注册</h3>
+      <p class="hint">
+        注册密码由页面随机生成并提交；成功后会在结果里回显
+        <code>password</code>。
+      </p>
+      <button id="btnRegSend" class="danger">1. 注册发码</button>
+      <button id="btnRegister" class="secondary">2. 提交注册</button>
     </div>
 
     <h3>结果</h3>
@@ -90,6 +110,16 @@
     <script>
       const $ = (id) => document.getElementById(id);
       let lastCookie = "";
+
+      function randomPassword(len = 10) {
+        const chars =
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let text = "";
+        for (let i = 0; i < len; i++) {
+          text += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return text;
+      }
 
       async function call(path, body) {
         const res = await fetch(path, {
@@ -110,7 +140,7 @@
       }
 
       $("btnSend").onclick = async () => {
-        $("out").textContent = "发送中…";
+        $("out").textContent = "登录发码中…";
         await call("/api/sms/send", {
           phone: $("phone").value.trim(),
           countrycode: $("cc").value.trim() || "86",
@@ -123,6 +153,27 @@
           phone: $("phone").value.trim(),
           code: $("code").value.trim(),
           countrycode: $("cc").value.trim() || "86",
+          cookie: lastCookie || undefined,
+        });
+      };
+
+      $("btnRegSend").onclick = async () => {
+        $("out").textContent = "注册发码中…";
+        await call("/api/sms/register/send", {
+          phone: $("phone").value.trim(),
+          countrycode: $("cc").value.trim() || "86",
+          cookie: lastCookie || undefined,
+        });
+      };
+
+      $("btnRegister").onclick = async () => {
+        const password = randomPassword(10);
+        $("out").textContent = `注册中（随机密码 ${password}）…`;
+        await call("/api/sms/register", {
+          phone: $("phone").value.trim(),
+          code: $("code").value.trim(),
+          countrycode: $("cc").value.trim() || "86",
+          password,
           cookie: lastCookie || undefined,
         });
       };
