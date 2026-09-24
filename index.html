@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>网易云短信登录 API</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        max-width: 720px;
+        margin: 40px auto;
+        padding: 0 16px;
+        line-height: 1.5;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px;
+      }
+      pre {
+        padding: 12px;
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        overflow: auto;
+      }
+      label {
+        display: block;
+        margin: 12px 0 4px;
+      }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas);
+        background: Canvas;
+        color: CanvasText;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 12px;
+        margin-right: 8px;
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 0;
+        background: #1677ff;
+        color: #fff;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: color-mix(in srgb, CanvasText 18%, Canvas);
+        color: CanvasText;
+      }
+      .hint {
+        color: color-mix(in srgb, CanvasText 60%, Canvas);
+        font-size: 13px;
+      }
+      #out {
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>网易云短信登录 API</h1>
+    <p class="hint">
+      EdgeOne Makers Cloud Functions：<code>POST /api/sms/send</code>、
+      <code>POST /api/sms/verify</code>（登录并返回含 MUSIC_U 的 cookie）
+    </p>
+
+    <label>手机号</label>
+    <input id="phone" placeholder="13800138000" />
+
+    <label>国家码</label>
+    <input id="cc" value="86" />
+
+    <label>短信验证码</label>
+    <input id="code" placeholder="收到短信后再填" />
+
+    <div>
+      <button id="btnSend">1. 发送验证码</button>
+      <button id="btnVerify" class="secondary">2. 验证并登录</button>
+    </div>
+
+    <h3>结果</h3>
+    <pre id="out">等待操作…</pre>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let lastCookie = "";
+
+      async function call(path, body) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { ok: false, message: text };
+        }
+        $("out").textContent = JSON.stringify(data, null, 2);
+        if (data.cookie) lastCookie = data.cookie;
+        return data;
+      }
+
+      $("btnSend").onclick = async () => {
+        $("out").textContent = "发送中…";
+        await call("/api/sms/send", {
+          phone: $("phone").value.trim(),
+          countrycode: $("cc").value.trim() || "86",
+        });
+      };
+
+      $("btnVerify").onclick = async () => {
+        $("out").textContent = "登录中…";
+        await call("/api/sms/verify", {
+          phone: $("phone").value.trim(),
+          code: $("code").value.trim(),
+          countrycode: $("cc").value.trim() || "86",
+          cookie: lastCookie || undefined,
+        });
+      };
+    </script>
+  </body>
+</html>

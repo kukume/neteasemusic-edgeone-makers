@@ -1,0 +1,11 @@
+{
+  "name": "netease-sms",
+  "nodeVersion": "20.18.0",
+  "cloudFunctions": {
+    "nodejs": {
+      "maxDuration": 120,
+      "includeFiles": [".cache-load.min.js", ".cache-core.js"],
+      "externalNodeModules": ["canvas", "jsdom"]
+    }
+  }
+}
